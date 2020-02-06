@@ -1,0 +1,304 @@
+#!/bin/bash
+
+: '
+dims should print the dimensions of the matrix as the number of rows, followed by a space, then the number of columns.
+transpose should reflect the elements of the matrix along the main diagonal. Thus, an MxN matrix will become an NxM matrix and the values along the main diagonal will remain unchanged.
+mean should take an MxN matrix and return an 1xN row vector, where the first element is the mean of column one, the second element is the mean of column two, and so on.
+add should take two MxN matrices and add them together element-wise to produce an MxN matrix. add should return an error if the matrices do not have the same dimensions.
+multiply should take an MxN and NxP matrix and produce an MxP matrix. Note that, unlike addition, matrix multiplication is not commutative. That is A*B != B*A.
+'
+
+
+#For getting a single input from | or file
+getOneInput() {
+	tempMatrixFile="matrixIn$$"
+	result="FAIL"
+	
+	#Test if  not 1 arg, quit
+	if test $# -gt 1
+	then
+		echo 1>&2 
+	
+	#Test if no args, why
+	elif test $# -eq 0
+	then
+		#Get piped input
+		cat > $tempMatrixFile
+		result="$tempMatrixFile"
+	else
+		if [ ! -r $1 ] || [ ! -f $1 ]; then
+			echo 1>$2
+		else
+			cat $1 > $tempMatrixFile
+			result="$tempMatrixFile"
+		fi
+	fi
+	
+	echo $result
+}
+
+#For getting two inputs from | or files
+getTwoInputs(){
+	tempMatrixFile1="matrixIn$$"
+	tempMatrixFile2="matrixIn2$$"
+	didFail=1
+
+	
+	#Test if  not 2 args, quit
+	if test $# -gt 2
+	then
+		echo 1>&2 
+	
+	#Test if only 1 arg
+	elif test $# -eq 1
+	then
+		#get piped input
+		cat > $tempMatrixFile1
+		cat $1 > $tempMatrixFile2
+		#Insure it all works
+		if [ ! -f $1 ] || [ ! -f $tempMatrixFile1 ] || [ ! -r $1 ] || [ ! -r $tempMatrixFile1 ]; then
+			echo 1>$2
+		else
+			didFail=0
+		fi
+	elif test $# -eq 2; then
+		#Get from two files 
+		cat $1 > $tempMatrixFile1
+		cat $2 > $tempMatrixFile2
+		if [ ! -f $tempMatrixFile1 ] || [ ! -f $tempMatrixFile2 ] || [ ! -r $tempMatrixFile1 ] || [ ! -r $tempMatrixFile2 ]; then
+			echo 1>$2
+		else
+			didFail=0
+		fi
+	else
+		echo 1>&2
+		didFail=1
+	fi
+	
+	failed="FAIL"
+	
+	if test $didFail -eq 1 ; then
+		echo $failed $failed
+	else
+		echo "$tempMatrixFile1" "$tempMatrixFile2"
+	fi
+}
+
+#Gets the dims from a passed in source
+getDims() {
+	rows=0
+	cols=0
+	
+	idx=0
+	while read matrixFile
+	do
+		for i in $matrixFile
+		do
+			(( cols++ ))
+		done
+		(( rows++ ))
+	done <<<"$1"
+	#Has to do this to get correct cols
+	(( cols = cols / rows ))
+}
+
+dims() {
+	args=$*
+	#Insures good data
+	tempMatrix=$(getOneInput $args)
+	if test $tempMatrix == "FAIL"; then
+		exit 1
+	fi
+	matrixFile=$(<$tempMatrix)
+	
+	getDims "$matrixFile"
+	echo "$rows" "$cols"
+	
+	#Cleans up
+	rm -f matrixIn* && rm -f transposeMatrix*
+
+}
+
+
+function transpose() {
+	args=$*
+	#Gets good data
+	tempMatrix=$(getOneInput $args)
+	if test $tempMatrix == "FAIL"; then
+		exit 1
+	fi
+	matrixFile=$(<$tempMatrix)
+	
+	getDims "$matrixFile"
+	
+	#Best way to do this without failure is to write to file
+	transposeMatrix="transposeMatrix$$"
+	for i in $(seq 1 $cols); do
+		#Cuts col then echos as rows
+		temp=$( cut -f $i "$tempMatrix" )
+		row=$( echo $temp | tr ' ' '\t' )
+		echo "$row" >> "$transposeMatrix"
+	done
+	
+	cat "$transposeMatrix"
+	rm -f matrixIn* && rm -f transposeMatrix*
+}
+
+
+
+function mean() {
+	args=$*
+	#Gets good input
+	tempMatrix=$(getOneInput $args)
+	if test $tempMatrix == "FAIL"; then
+		exit 1
+	fi
+	matrixFile=$(<$tempMatrix)
+	
+	getDims "$matrixFile"
+	means=()
+	for i in $(seq 1 $cols); do
+		#Grabs a column
+		temp=$( cut -f $i "$tempMatrix" )
+		colSum=0
+		for j in $temp; do
+			#Sums up the column
+			(( colSum = colSum + j ))
+		done
+		#Rounding
+		(( mean = (colSum + (rows/2)*( (colSum>0)*2-1 )) / rows  ))
+		#echo $mean
+		means+=($mean)
+	done
+	#echo $rows
+	echo ${means[@]} | tr ' ' '\t'
+	
+		rm -f matrixIn* && rm -f transposeMatrix*
+
+	
+}
+
+function add() {
+	#Grabs two good inputs
+	read m1 m2 < <(getTwoInputs $*)
+	if test $m1 == "FAIL"; then
+		exit 1
+	fi
+	mm1=$(<$m1)
+	mm2=$(<$m2)
+	
+	#Check if two matrixes are same size
+	getDims "$mm1"
+	firstRow=$rows
+	firstCol=$cols
+	getDims "$mm2"
+	#Verifies
+	if [ ! $firstRow -eq $rows ] || [ ! $firstCol -eq $cols ]; then
+		echo 1>&2
+		exit 1
+	else
+		:
+	fi
+	#Converts to arrays for simple calculation in RAM
+	read -a mat1 <<< $mm1
+	read -a mat2 <<< $mm2
+	
+	#Builds sum array
+	matSum=()
+	(( total = rows * cols))
+	(( total -= 1 ))
+	for i in $(seq 0 $total); do
+		(( summ = mat1[i] + mat2[i] ))
+	#	echo "${mat1[$i]}" "${mat2[$i]}" 
+		matSum+=($summ)	
+	done
+	
+	
+	#Prints final sum array
+	#echo ${matSum[@]}
+	(( rows -= 1 ))
+	if test $rows -gt 0; then
+		for i in $(seq 0 $rows); do
+			(( start = i * cols  ))
+			echo ${matSum[@]:$start:$cols} | tr ' ' '\t'
+		done
+	else
+		echo ${matSum[@]}
+	fi
+	
+	rm -f matrixIn* && rm -f transposeMatrix*
+
+
+}
+
+function multiply() {
+	read m1 m2 < <(getTwoInputs $*)
+	if test $m1 == "FAIL"; then
+		exit 1
+	fi
+	mm1=$(<$m1)
+	mm2=$(<$m2)
+	
+	#Check if two matrixes are same size
+	getDims "$mm1"
+	m1Rows=$rows
+	m1Cols=$cols
+	getDims "$mm2"
+	
+	#echo "$m1Cols" "$rows"
+	
+	if [ ! $m1Cols -eq $rows ]; then
+		echo 1>&2
+		exit 1
+	else
+		:
+	fi
+	
+	read -a mat1 <<< $mm1
+	read -a mat2 <<< $mm2
+	
+	#echo "$mm1"
+	#echo "$mm2"
+	
+	
+	(( m1Rows-- ))
+	(( colSeq = cols - 1 ))
+	finalMatrix=()
+	#Loops use two 1d arrays
+	#Using 1d matrix multiplication math
+	#Needs three loops to take mismatched rows and cols into account
+	for i in $(seq 0 $m1Rows); do
+		for j in $(seq 0 $colSeq); do
+			val=0
+			for k in $(seq 0 $rows); do 
+				(( firstIdx = i * m1Cols + k ))
+				(( secondIdx =  k * cols + j ))
+				#echo "$firstIdx" "$secondIdx"
+				#Builds the elements 0-n*m
+				(( val += (mat1[firstIdx] * mat2[secondIdx]) ))
+			done
+			finalMatrix+=($val)
+		done
+	done
+	
+	(( finalRows = m1Rows ))
+	(( finalCols = cols ))
+	#echo "$finalRows" "$finalCols"
+	#Prints out the final matrix in 2d
+	if test $finalRows -gt 0; then
+		for i in $(seq 0 $finalRows); do
+			(( start = i * finalCols  ))
+			echo ${finalMatrix[@]:$start:$finalCols} | tr ' ' '\t'
+		done
+	else
+		echo ${finalMatrix[@]}
+	fi
+	#cleans up
+	rm -f matrixIn* && rm -f transposeMatrix*
+}
+
+
+
+
+$1 "${@:2}"
+
